@@ -23,7 +23,7 @@
   if (typeof window === 'undefined' || !window.__ModuleLoader__) return
 
   window.__ModuleLoader__.load({
-    id: 'dsh-timed-send',
+    id: '@zlqd123/dsh-timed-send',
     factory: function (require) {
       /** 可选依赖：拿不到就降级，不能炸页面。 */
       function safeRequire(spec) {

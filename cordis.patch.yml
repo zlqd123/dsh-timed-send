@@ -2,4 +2,4 @@
 # 条目 id 同时是前端 fetch 的语义锚点，改名前先想清楚。
 - insert:
     - id: scheduled-send
-      name: dsh-timed-send
+      name: '@zlqd123/dsh-timed-send'

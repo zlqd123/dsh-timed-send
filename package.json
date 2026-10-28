@@ -1,6 +1,6 @@
 {
-  "name": "dsh-timed-send",
-  "version": "0.3.0",
+  "name": "@zlqd123/dsh-timed-send",
+  "version": "0.4.0",
   "description": "DSH Web 定时发送：选好时刻到点由 Host 真正发出；已有对话内排进当前对话，新会话界面每条各建一个。含 DeepSeek 峰谷时段（法定节假日/调休）一键选时。",
   "type": "module",
   "main": "index.mjs",

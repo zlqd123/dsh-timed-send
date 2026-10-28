@@ -1,4 +1,4 @@
-# dsh-timed-send · DSH 定时发送
+# @zlqd123/dsh-timed-send · DSH 定时发送
 
 给 DSH Web 聊天框加一个**定时发送**按钮：点一下选定时间，到点由 Host 把消息真正发出去。
 
@@ -77,7 +77,7 @@ DSH 的「新建会话」按钮逻辑是（`ui-workspace` 的 `createInWorkspace
 从 npm 安装（发布后可用）：
 
 ```bash
-dsh plugin --profile web add dsh-timed-send
+dsh plugin --profile web add @zlqd123/dsh-timed-send
 ```
 
 或从本地源码安装：
@@ -90,9 +90,9 @@ dsh plugin --profile web add ./dsh-timed-send
 或手动（本机已用这种方式装好）：
 
 1. `~/.dsh/profiles/web/package.json` 的 `dependencies` 加
-   `"dsh-timed-send": "link:D:/tool/deepseek/3/dsh-timed-send"`
-2. 同文件 `dsh.profile.bundles` 追加 `"dsh-timed-send"`
-3. `~/.dsh/profiles/web/node_modules/dsh-timed-send` 指向源码目录
+   `"@zlqd123/dsh-timed-send": "link:D:/tool/deepseek/3/dsh-timed-send"`
+2. 同文件 `dsh.profile.bundles` 追加 `"@zlqd123/dsh-timed-send"`
+3. `~/.dsh/profiles/web/node_modules/@zlqd123/dsh-timed-send` 指向源码目录
 
 改完 **重启 `dsh web`**，浏览器 **Ctrl+Shift+R** 硬刷新。
 
@@ -134,8 +134,8 @@ dsh web
 
 编辑 `~/.dsh/profiles/web/package.json`：
 
-- `dsh.profile.bundles` 数组里删掉 `"dsh-timed-send"`
-- `dependencies` 里删掉 `"dsh-timed-send": "link:..."`
+- `dsh.profile.bundles` 数组里删掉 `"@zlqd123/dsh-timed-send"`
+- `dependencies` 里删掉 `"@zlqd123/dsh-timed-send": "link:..."`
 
 再删掉 profile 里的链接目录：
 
@@ -235,9 +235,11 @@ npm login --registry=https://registry.npmjs.org
 npm publish --registry=https://registry.npmjs.org --access public
 ```
 
+> 提示：npm 新流程已不用 OTP 输入，而是 `Press ENTER to open in the browser...`——直接回车，浏览器打开链接完成验证即可。
+
 发布后到包的 Access 页面配置 trusted publisher：
 
-- 地址：`https://www.npmjs.com/package/dsh-timed-send/access`
+- 地址：`https://www.npmjs.com/package/@zlqd123%2Fdsh-timed-send/access`
 - Provider：GitHub Actions
 - Repository：`zlqd123/dsh-timed-send`
 - Workflow filename：`publish.yml`
