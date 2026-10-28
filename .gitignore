@@ -1,0 +1,14 @@
+# npm 发布产物不该进仓库
+node_modules/
+*.tgz
+
+# 测试与调试残留
+.peak-logic-*.mjs
+*.log
+*.json.tmp-*
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

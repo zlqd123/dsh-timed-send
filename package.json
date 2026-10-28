@@ -1,0 +1,67 @@
+{
+  "name": "dsh-timed-send",
+  "version": "0.3.0",
+  "description": "DSH Web 定时发送：选好时刻到点由 Host 真正发出；已有对话内排进当前对话，新会话界面每条各建一个。含 DeepSeek 峰谷时段（法定节假日/调休）一键选时。",
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22",
+    "dsh": ">=0.2.0 <0.3.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-api-workspace-controller",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ]
+    }
+  },
+  "license": "MIT",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "dsh-web",
+    "timed-send",
+    "schedule",
+    "scheduled-send",
+    "composer",
+    "timer",
+    "定时发送",
+    "定时",
+    "峰谷"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zlqd123/dsh-timed-send.git"
+  },
+  "homepage": "https://github.com/zlqd123/dsh-timed-send#readme",
+  "bugs": {
+    "url": "https://github.com/zlqd123/dsh-timed-send/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "node --test test/engine.test.mjs",
+    "prepublishOnly": "node --test test/engine.test.mjs"
+  }
+}

@@ -1,0 +1,67 @@
+name: publish
+
+# 打 tag（v0.3.0 之类）即发布到 npm；也可在 Actions 页手动触发。
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: 校验与测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # 语法先过一遍：两个半件都是纯 ESM / 手写 CJS 包，改动后最容易犯的就是语法错。
+      - name: 语法检查
+        run: |
+          node --check index.mjs
+          node --check client.js
+
+      - name: 单元测试
+        run: node --test test/engine.test.mjs
+
+      # 打包一次，确认 files 白名单里的东西真的都在包里。
+      - name: 检查 npm 包内容
+        run: |
+          npm pack --dry-run
+
+  publish:
+    name: 发布到 npm
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # 标签必须和 package.json 的版本一致，否则发出去的版本会跟 tag 对不上。
+      - name: 校验 tag 与版本号一致
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          PKG=$(node -p "require('./package.json').version")
+          TAG=${GITHUB_REF_NAME#v}
+          if [ "$PKG" != "$TAG" ]; then
+            echo "::error::tag $TAG 与 package.json 版本 $PKG 不一致"
+            exit 1
+          fi
+
+      - name: 发布
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
