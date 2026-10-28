@@ -220,6 +220,40 @@ Host 侧正常时日志里会有：
 - 如果到点时该会话正被别处删除/归档，投递会失败并在列表里显示原因。
 - 待发列表每 30 秒轮询一次，倒计时不是秒级刷新。
 
+## 发布（维护者）
+
+仓库已配好 npm 同步发包 workflow：`.github/workflows/publish.yml`。
+
+用 **npm Trusted Publishing (OIDC)**，仓库里不存任何长期 token——绕开账号 2FA，也没有可能泄漏的 `NPM_TOKEN` Secret。
+
+### 首次引导（每个新包只需一次）
+
+未发布过的包无法在 npm 页面直接配置 trusted publisher，先手动发第一个版本：
+
+```bash
+npm login --registry=https://registry.npmjs.org
+npm publish --registry=https://registry.npmjs.org --access public
+```
+
+发布后到包的 Access 页面配置 trusted publisher：
+
+- 地址：`https://www.npmjs.com/package/dsh-timed-send/access`
+- Provider：GitHub Actions
+- Repository：`zlqd123/dsh-timed-send`
+- Workflow filename：`publish.yml`
+- Environment：留空
+
+### 后续发版
+
+改 `package.json` 版本 → 提交 → 打 tag 推上去即可，workflow 会自动校验、测试、发布：
+
+```bash
+git tag v0.3.1
+git push origin v0.3.1
+```
+
+workflow 会先跑语法检查与单测，再校验 tag 与 `package.json` 版本一致，最后 `npm publish --provenance`。
+
 ## 文件
 
 | 文件 | 作用 |

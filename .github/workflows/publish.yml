@@ -1,6 +1,12 @@
 name: publish
 
 # 打 tag（v0.3.0 之类）即发布到 npm；也可在 Actions 页手动触发。
+#
+# 用 npm Trusted Publishing（OIDC）发布，仓库里不存任何长期 token：
+# npm 侧把本仓库配成 trusted publisher 后，Actions 用短期 OIDC 凭据直接发布。
+# 好处：绕开账号 2FA，也没有可能泄漏的 NPM_TOKEN Secret。
+#
+# 首次需在 npm 网页配置一次（见 README「发布」一节）。
 on:
   push:
     tags: ['v*']
@@ -12,6 +18,8 @@ concurrency:
 
 permissions:
   contents: read
+  # Trusted Publishing 必需：npm 用它验证发布确实来自这个仓库的这个 workflow。
+  id-token: write
 
 jobs:
   verify:
@@ -50,6 +58,10 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
+      # OIDC 可信发布需要较新的 npm。
+      - name: 升级 npm（OIDC 支持）
+        run: npm install -g npm@latest
+
       # 标签必须和 package.json 的版本一致，否则发出去的版本会跟 tag 对不上。
       - name: 校验 tag 与版本号一致
         if: startsWith(github.ref, 'refs/tags/v')
@@ -61,7 +73,6 @@ jobs:
             exit 1
           fi
 
-      - name: 发布
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # 不传 NODE_AUTH_TOKEN：npm 会自动走 OIDC 换短期凭据。
+      - name: 发布（Trusted Publishing）
+        run: npm publish --provenance --access public
