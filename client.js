@@ -52,9 +52,10 @@
         'button.label': '定时发送',
         'button.tip': '定时发送：到点自动发出',
         'panel.title': '定时发送',
-        'panel.subtitle': '到点由 Host 真正发出。在对话内则排进本对话；不在对话内则到点新开一个。',
+        'panel.subtitle': '在对话内则排进本对话；不在对话内则到点新开一个。',
         'panel.emptyDraft': '输入框是空的，请先在下方输入框写好内容。',
         'panel.confirm': '定时发送',
+        'panel.save': '保存',
         'panel.cancel': '取消',
         'panel.busy': '正在创建…',
         'panel.invalidTime': '请选择晚于当前时刻的时间。',
@@ -66,7 +67,6 @@
         'peak.offPeak': '谷',
         'peak.peak': '峰',
         'peak.left': '还剩 {d}',
-        'peak.rule': '北京时间工作日 09:00–12:00、14:00–18:00 为高峰；周末与法定节假日全天为谷时（含 2026 年调休安排；2027 年官方未公布，暂按星期判定）。',
         'dock.pendingOne': '1 条待发',
         'dock.pendingMany': '{n} 条待发',
         'dock.sendAt': '将于 {time} 发送',
@@ -135,6 +135,29 @@
        * - 关浏览器即清（本来就是临时偏好）。
        */
       var TIME_MEMORY_PREFIX = 'dsh-timed-send:lastTime:'
+
+      /**
+       * 保存/发送成功之后清空原始输入框。
+       *
+       * 单独抽出来是因为它有两次尝试的必要：`setDraft` 写的是编辑器模型，
+       * 若此刻 React 正在提交渲染（或编辑器刚重挂），一次调用可能被随后的
+       * 状态回灌覆盖——表现就是「已经保存了，但输入框里字还在」。
+       * 所以再补一次微任务后的清空，作为幂等的兜底。
+       */
+      function clearDraftAfterSave(props) {
+        var apply = function () {
+          try {
+            if (props.inputActions && typeof props.inputActions.setDraft === 'function') {
+              props.inputActions.setDraft('')
+              return true
+            }
+          } catch (error) { /* 忽略，交给兜底 */ }
+          return false
+        }
+        apply()
+        // 兜底：等本轮渲染落地后再清一次（内容为空时是幂等的，不会闪）。
+        Promise.resolve().then(apply)
+      }
 
       /** 读取该会话记住的时间（本地 datetime-local 字符串），没有则 undefined。 */
       function readRememberedTime(sessionId) {
@@ -405,7 +428,6 @@
         '.sched-peak-state[data-peak=true]{color:#c46a1f}',
         '.sched-peak-state[data-peak=false]{color:#24805a}',
         '.sched-peak-meta{margin-left:auto;color:var(--dsw-alias-label-tertiary);white-space:nowrap}',
-        '.sched-peak-rule{color:var(--dsw-alias-label-caption);font-size:17px;line-height:22px;margin-top:1px}',
         '.sched-golden{box-sizing:border-box;width:100%;display:inline-flex;align-items:center;justify-content:center;gap:5px;',
         'height:40px;border-radius:var(--dsw-radius-md);border:.5px solid var(--dsw-alias-border-l2);',
         'background:0 0;color:var(--dsw-alias-label-secondary);cursor:pointer;font:inherit;font-size:18px}',
@@ -426,7 +448,16 @@
         'background:var(--dsw-alias-bg-module-platform);padding:6px 10px;display:flex;flex-direction:column;gap:6px}',
         '.sched-item{display:flex;align-items:center;gap:8px;font-size:18px;line-height:24px;',
         'color:var(--dsw-alias-label-secondary)}',
-        '.sched-item-text{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+        // 时间徽章：气泡外、正文前；峰值橙、谷时绿，与面板里的状态点同一套颜色
+        '.sched-time-badge{flex:none;font-size:16px;line-height:22px;font-variant-numeric:tabular-nums;',
+        'padding:0 8px;border-radius:999px;border:.5px solid var(--dsw-alias-border-l2);',
+        'color:var(--dsw-alias-label-secondary);white-space:nowrap}',
+        '.sched-time-badge[data-peak=true]{color:#c46a1f;border-color:#e5883b}',
+        '.sched-time-badge[data-peak=false]{color:#24805a;border-color:#2f9e6e}',
+        // 正文气泡：自身有底，跟时间徽章分离开
+        '.sched-bubble{min-width:0;flex:1;display:flex;align-items:baseline;overflow:hidden;',
+        'border-radius:var(--dsw-radius-sm);background:var(--dsw-alias-bg-base);padding:1px 8px}',
+        '.sched-item-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
         '.sched-item-meta{color:var(--dsw-alias-label-tertiary)}',
         '.sched-item-editing{background:var(--dsw-alias-interactive-bg-hover);border-radius:var(--dsw-radius-sm)}',
         '.sched-actions{display:inline-flex;align-items:center;gap:2px;flex:none}',
@@ -522,7 +553,6 @@
           'div',
           { className: 'sched-peak', 'data-scheduled-send-peak': '' },
           rows,
-          h('div', { className: 'sched-peak-rule' }, t('peak.rule')),
         )
       }
 
@@ -530,6 +560,8 @@
         // 打开面板时的初始时间：优先用「本会话上次手动设置过的时间」，
         // 没有才用默认的「现在 + 2 分钟」。
         var [when, setWhen] = useState(function () {
+          // 编辑场景：用被编辑任务原本设定的时间（优先级最高）。
+          if (typeof props.initialWhen === 'string' && props.initialWhen !== '') return props.initialWhen
           var remembered = readRememberedTime(props.sessionId)
           return remembered !== undefined ? remembered : toLocalInputValue(defaultWhen())
         })
@@ -538,7 +570,10 @@
         var [notice, setNotice] = useState('')
         // 默认值只有 +2 分钟：面板开久了会过期。手动改过就不再替他做主。
         // 有记忆值时也算「用户已经表过态」，同样不替他顺延。
-        var touchedRef = useRef(readRememberedTime(props.sessionId) !== undefined)
+        var touchedRef = useRef(
+          (typeof props.initialWhen === 'string' && props.initialWhen !== '')
+          || readRememberedTime(props.sessionId) !== undefined,
+        )
         var panelRef = useRef(null)
 
         // 内容不再自己收：实时读原始输入框（外部输入框就是唯一事实来源）。
@@ -642,6 +677,7 @@
                 var pickedText = toLocalInputValue(picked)
                 setWhen(pickedText)
                 rememberTime(props.sessionId, pickedText)
+                if (typeof props.onTimeChange === 'function') props.onTimeChange(pickedText)
                 setError('')
                 setNotice(t(wasPeak ? 'panel.goldenSet' : 'panel.goldenNow', {
                   time: pad2(picked.getHours()) + ':' + pad2(picked.getMinutes()) + ':' + pad2(picked.getSeconds()),
@@ -662,6 +698,8 @@
               setWhen(event.target.value)
               // 手动改过就记住，关闭面板后下次打开仍是这个时间。
               rememberTime(props.sessionId, event.target.value)
+              // 回传父层：编辑态下「列表里的保存」也要按这个新时间执行。
+              if (typeof props.onTimeChange === 'function') props.onTimeChange(event.target.value)
               setError('')
               setNotice('')
             },
@@ -680,7 +718,7 @@
             h(
               'button',
               { type: 'button', className: 'sched-primary', onClick: submit, disabled: busy || !hasDraft },
-              busy ? t('panel.busy') : t('panel.confirm'),
+              busy ? t('panel.busy') : (props.editing === true ? t('panel.save') : t('panel.confirm')),
             ),
           ),
         )
@@ -719,13 +757,25 @@
             else if (status === 'sending') meta = t('dock.sending')
             else meta = t('dock.sendAt', { time: formatLocal(task.at) }) + ' · ' + describeRemaining(task.at, now)
 
+            // 时间徽章放在气泡外、正文之前：先看到「什么时候发」，再看发什么。
+            var badge = status === 'failed' ? null : h(
+              'span',
+              {
+                className: 'sched-time-badge',
+                'data-peak': isPeakTime(new Date(task.at)) ? 'true' : 'false',
+                title: formatLocal(task.at),
+              },
+              formatLocal(task.at),
+            )
+
             return h(
               'div',
               { key: task.id, className: 'sched-item' + (editing ? ' sched-item-editing' : '') },
+              badge,
               h(
                 'div',
-                { className: 'sched-item-text', title: task.text },
-                h('span', null, editing ? t('dock.editing') : head),
+                { className: 'sched-bubble', title: task.text },
+                h('span', { className: 'sched-item-text' }, editing ? t('dock.editing') : head),
                 h('span', { className: 'sched-item-meta' }, '　' + meta),
               ),
               // 编辑态只留「保存 / 放弃」两个动作：此时正文在输入框里，
@@ -931,6 +981,11 @@
         // 保存才写回 Host，且**只改正文、不动时间**。
         var [editingId, setEditingId] = useState(null)
         var [editingDirty, setEditingDirty] = useState(false)
+        // 与 editingId 同步的 ref：effect 里要「立刻」判断是否还在编辑，
+        // 而 state 要等下一次渲染才更新，保存后清空草稿会被它坑。
+        var editingRef = useRef(null)
+        // 正在编辑的任务原本设定的时间（打开面板时预填）。
+        var [editingWhen, setEditingWhen] = useState(null)
 
         var onEdit = useCallback(function (id) {
           if (id === null) {
@@ -938,8 +993,10 @@
             try {
               if (props.inputActions && typeof props.inputActions.setDraft === 'function') props.inputActions.setDraft('')
             } catch (error) { /* 忽略 */ }
+            editingRef.current = null
             setEditingId(null)
             setEditingDirty(false)
+            setEditingWhen(null)
             return
           }
           var task = visible.filter(function (item) { return item.id === id })[0]
@@ -955,39 +1012,81 @@
             console.warn('[scheduled-send] 载入待编辑内容失败：', error)
             return
           }
+          editingRef.current = id
           setEditingId(id)
           setEditingDirty(false)
+          // 同步唤醒面板，并把原设定时间填进去：用户可能只想改时间，
+          // 也可能想连着正文一起改，面板里都能做。
+          setEditingWhen(toLocalInputValue(new Date(task.at)))
+          setOpen(true)
         }, [props, visible])
 
         // 输入框内容一变就标脏，作为「保存」按钮的可用条件。
         useEffect(function () {
           // 已退出编辑：不再跟踪脏状态（否则清空输入框会被判成「有改动」）。
-          if (editingId === null) return
+          // 读 ref 而不是 state：保存后同一轮里就要立刻生效，不能等下一次渲染。
+          if (editingRef.current === null) return
           var current = typeof props.input?.draft === 'string' ? props.input.draft : ''
           var original = visible.filter(function (item) { return item.id === editingId })[0]
           setEditingDirty(original !== undefined && current !== original.text)
         }, [editingId, props.input, visible])
 
-        var onSave = useCallback(function (id) {
-          var current = typeof props.input?.draft === 'string' ? props.input.draft : ''
-          var body = current.trim()
-          if (body === '') return
-          call('updateText', { id: id, text: body }).then(function (result) {
+        /**
+         * 保存一条编辑中的任务：正文 + 时间一起提交。
+         *
+         * 关于「点保存没反应、切页面才发现已保存、但输入框没清空」：
+         * 根因是清空草稿依赖 `editingId` 已经变成 null（否则同步 effect 会把任务正文
+         * 再灌回输入框），而 React 的 state 更新不是同步的——原实现的 setEditingId(null)
+         * 与随后立刻调用的 setDraft('') 之间存在竞态，一旦 effect 先跑就会把文字写回去。
+         * 这里改成：先用 ref 立刻关掉「编辑中」的判定（effect 读 ref，不再读 state），
+         * 再清空输入框，最后才做界面状态的清理，顺序上不给竞态留窗口。
+         */
+        var savingRef = useRef(false)
+
+        /**
+         * 通用保存：正文与时间一起写回 Host。
+         * @param {string} id 任务 id
+         * @param {string} text 新正文
+         * @param {string} [atIso] 新时间（ISO）；不传则保留原时间
+         */
+        var onSaveWithTime = useCallback(function (id, text, atIso) {
+          if (savingRef.current) return Promise.resolve({ ok: false, error: '正在保存中' })
+          var body = String(text == null ? '' : text).trim()
+          if (body === '') return Promise.resolve({ ok: false, error: '内容为空' })
+          savingRef.current = true
+          return call('updateTask', { id: id, text: body, at: atIso }).then(function (result) {
             if (!result || result.ok === false) {
               console.warn('[scheduled-send] 保存失败：', result && result.error)
-              return
+              savingRef.current = false
+              return { ok: false, error: (result && result.error) || '保存失败' }
             }
-            // 顺序很重要：先退出编辑态，再清空输入框。
-            // 若先清空仍有 editingId，下面的同步 effect 会把「任务正文」当作
-            // 当前草稿再灌回去，看起来就是「保存了但输入框没清掉」。
+            // 先断开编辑态（同步判定），再清空输入框，避免草稿被回灌。
+            editingRef.current = null
             setEditingId(null)
             setEditingDirty(false)
-            try {
-              if (props.inputActions && typeof props.inputActions.setDraft === 'function') props.inputActions.setDraft('')
-            } catch (error) { /* 忽略 */ }
+            setEditingWhen(null)
+            clearDraftAfterSave(props)
+            setOpen(false)
             setRefreshToken(function (value) { return value + 1 })
+            savingRef.current = false
+            return { ok: true }
+          }).catch(function (error) {
+            console.warn('[scheduled-send] 保存异常：', error)
+            savingRef.current = false
+            return { ok: false, error: error && error.message ? error.message : String(error) }
           })
         }, [props])
+
+        /** 列表里的「保存」按钮：正文取当前输入框，时间取面板里最新的设定。 */
+        var onSave = useCallback(function (id) {
+          var current = typeof props.input?.draft === 'string' ? props.input.draft : ''
+          var atIso
+          if (typeof editingWhen === 'string' && editingWhen !== '') {
+            var parsed = new Date(editingWhen).getTime()
+            if (isFinite(parsed)) atIso = new Date(parsed).toISOString()
+          }
+          return onSaveWithTime(id, current, atIso)
+        }, [props, editingWhen, onSaveWithTime])
 
         var badge = pending > 0 ? h('span', { className: 'sched-badge' }, String(pending)) : null
         var tooltip = failed > 0 ? t('dock.failedCount', { n: failed }) : t('button.tip')
@@ -1040,7 +1139,18 @@
                 getDraft: getDraft,
                 anchorRef: anchorRef,
                 onCancel: close,
-                onConfirm: createScheduled,
+                // 编辑态：面板里的按钮是「保存」，提交走 onSave（正文+时间一起写）。
+                editing: editingId !== null,
+                initialWhen: editingWhen,
+                onTimeChange: function (value) { setEditingWhen(value) },
+                onConfirm: function (payload) {
+                  if (editingId !== null) {
+                    // 时间在面板里可能改过；照面板的来。
+                    setEditingWhen(toLocalInputValue(new Date(payload.at)))
+                    return Promise.resolve(onSaveWithTime(editingId, payload.text, payload.at))
+                  }
+                  return createScheduled(payload)
+                },
               })
             : null,
         )

@@ -534,6 +534,31 @@ export function apply(ctx) {
         return { ok: true, value: { tasks, now: Date.now() } }
       }
 
+      case 'updateTask': {
+        // 正文与时间一起改（编辑态保存）。at 省略则保留原时间。
+        const id = typeof body.id === 'string' ? body.id : ''
+        const text = typeof body.text === 'string' ? body.text.trim() : ''
+        if (text === '') return { ok: false, error: '消息内容为空' }
+        if (text.length > MAX_TEXT_CHARS) return { ok: false, error: '消息内容过长' }
+        const task = store.find(id)
+        if (task === undefined) return { ok: false, error: '任务不存在' }
+        if (task.status !== ACTIVE && task.status !== 'failed') return { ok: false, error: '任务已结束，无法编辑' }
+
+        const patch = { text, editedAt: new Date().toISOString() }
+        if (typeof body.at === 'string' && body.at !== '') {
+          const at = Date.parse(body.at)
+          if (!Number.isFinite(at)) return { ok: false, error: '时间无效' }
+          if (at <= Date.now() + 1000) return { ok: false, error: '时间必须晚于当前时间' }
+          patch.at = new Date(at).toISOString()
+          // 失败项改完时间重新进入待发，否则它仍是终点状态、永远不会被调度。
+          if (task.status === 'failed') patch.status = ACTIVE
+          patch.error = undefined
+        }
+        const updated = store.update(id, patch)
+        if (patch.at !== undefined) engine.reschedule()
+        return { ok: true, value: { task: updated } }
+      }
+
       case 'updateText': {
         // 只改正文，**不动 at**：用户编辑的是文字，没要求改时间。
         // 时间要改走 reschedule，两条路径分开更不容易误伤。
