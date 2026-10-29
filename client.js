@@ -69,7 +69,6 @@
         'peak.left': '还剩 {d}',
         'dock.pendingOne': '1 条待发',
         'dock.pendingMany': '{n} 条待发',
-        'dock.sendAt': '将于 {time} 发送',
         'dock.sendNow': '立即发送',
         'dock.cancel': '取消',
         'dock.retry': '重试',
@@ -752,10 +751,12 @@
             var status = task.status
             var editing = editingId === task.id
             var head = task.text.length > 46 ? task.text.slice(0, 46) + '…' : task.text
-            var meta
+            // 正常待发不再重复时间：徽章里已经写了「什么时候发」，
+            // 气泡里再写一遍「将于 X 发送 · N 分钟后」是纯噪音。
+            // 只有失败（要显示原因）和发送中（要显示进度）才需要这段说明。
+            var meta = ''
             if (status === 'failed') meta = t('dock.failed', { error: task.error || '未知错误' })
             else if (status === 'sending') meta = t('dock.sending')
-            else meta = t('dock.sendAt', { time: formatLocal(task.at) }) + ' · ' + describeRemaining(task.at, now)
 
             // 时间徽章放在气泡外、正文之前：先看到「什么时候发」，再看发什么。
             var badge = status === 'failed' ? null : h(
@@ -776,7 +777,7 @@
                 'div',
                 { className: 'sched-bubble', title: task.text },
                 h('span', { className: 'sched-item-text' }, editing ? t('dock.editing') : head),
-                h('span', { className: 'sched-item-meta' }, '　' + meta),
+                meta !== '' ? h('span', { className: 'sched-item-meta' }, '　' + meta) : null,
               ),
               // 编辑态只留「保存 / 放弃」两个动作：此时正文在输入框里，
               // 再给「立即发送」之类容易让人误操作。
