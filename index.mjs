@@ -19,6 +19,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
 import { randomUUID } from 'node:crypto'
+import { createHolidaySync } from './holidays.mjs'
 
 export const name = 'scheduled-send'
 
@@ -322,6 +323,38 @@ export function apply(ctx) {
   /** 需要随插件卸载一起释放的 fiber。 */
   const fibers = []
 
+  // ── 节假日联网同步 ────────────────────────────────────────────────────
+  // 内置表保证离线可用；这里在**后台**补未来两年，不阻塞启动。
+  // 拉不到就什么都不做，绝不让内置表退化（第三方数据可能比官方滞后）。
+  let holidaySync = null
+  try {
+    holidaySync = createHolidaySync({
+      cacheFile: join(resolveDataDir(), 'holidays.json'),
+      years: 2,
+      log: (...args) => log('[holidays]', ...args),
+    })
+    holidaySync.loadCache()
+    // 延后启动刷新：插件 apply 发生在 Loader 挂载早期，此刻 DNS/socket 池可能还没就绪，
+    // 当场请求容易出现 fetch failed / timeout（实测同一 URL 在进程稳定后 1 秒内可达）。
+    // 这个 timer 不 unref：它只是一次性任务，最迟几秒后自己消掉；插件 dispose 时清掉。
+    let holidayTimer = setTimeout(() => {
+      holidayTimer = null
+      holidaySync.refresh().catch((error) => {
+        log('节假日后台同步失败（忽略）：', reasonOf(error))
+      })
+    }, 5000)
+    if (typeof holidayTimer.unref === 'function') holidayTimer.unref()
+    fibers.push(() => () => {
+      if (holidayTimer !== null) {
+        clearTimeout(holidayTimer)
+        holidayTimer = null
+      }
+    })
+  } catch (error) {
+    console.error('[scheduled-send] 节假日同步初始化失败（忽略）：', reasonOf(error))
+    holidaySync = null
+  }
+
   /**
    * 真发：走 Host 公开的 Session 命令面，等价于用户回车。
    * @param {any} task
@@ -432,6 +465,13 @@ export function apply(ctx) {
   async function handle(body) {
     const action = typeof body?.action === 'string' ? body.action : ''
     switch (action) {
+      case 'holidays': {
+        // 浏览器启动时来取一次：拿到联网/缓存的表就覆盖内置表。
+        // 拿不到（null）时前端继续用内置表，行为不变。
+        const snapshot = holidaySync === null ? null : holidaySync.snapshot()
+        return { ok: true, value: { table: snapshot } }
+      }
+
       case 'health':
         return { ok: true, value: { plugin: 'dsh-scheduled-send', dataFile: store.file, tasks: store.list().length } }
 

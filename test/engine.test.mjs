@@ -275,7 +275,7 @@ const peakSrc = clientSource.slice(peakStart, peakEnd)
 const exported = 'export { isPeakTime, billingStateAt, formatDuration, isHoliday, isMakeupWorkday, nearestOffPeak }'
 const NL = String.fromCharCode(10)
 writeFileSync(peakModulePath, ['var DEFAULT_LEAD_MINUTES = 2;', pad2Src, peakSrc, exported].join(NL))
-const { isPeakTime, billingStateAt, formatDuration, isHoliday, nearestOffPeak } = await import(pathToFileURL(peakModulePath).href)
+const { isPeakTime, billingStateAt, formatDuration, isHoliday, isMakeupWorkday, nearestOffPeak } = await import(pathToFileURL(peakModulePath).href)
 process.on('exit', () => { try { unlinkSync(peakModulePath) } catch { /* 已清理 */ } })
 
 /** 用一个确定的周一（2026-10-26）构造「北京时间」时刻。 */
@@ -467,4 +467,43 @@ test('最近的谷时: 节假日/周末任意时刻都已在谷时', () => {
   const at = nearestOffPeak(now)
   const delta = at.getTime() - now.getTime()
   assert.ok(delta >= 2 * 60_000 && delta < 3 * 60_000, `实际 ${delta}ms`)
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2027 年安排：国办发明电〔2026〕10号
+//   元旦 1/1–1/3、春节 2/5–2/13、清明 4/3–4/5、劳动节 5/1–5/5、
+//   端午 6/9、中秋 9/15、国庆 10/1–10/7；
+//   调休上班：1/31、2/14、5/8、9/26、10/9。
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('2027: 各假期判定正确（含单日假期）', () => {
+  const bj = (mo, d) => new Date(Date.UTC(2027, mo - 1, d, 10, 0) - 8 * 3_600_000)
+  for (const [label, mo, d] of [
+    ['元旦首日', 1, 1], ['元旦末日', 1, 3],
+    ['春节除夕', 2, 5], ['春节中段', 2, 10], ['春节末日', 2, 13],
+    ['清明末日', 4, 5],
+    ['劳动节首日', 5, 1], ['劳动节末日', 5, 5],
+    ['端午（1 天）', 6, 9],
+    ['中秋（1 天）', 9, 15],
+    ['国庆首日', 10, 1], ['国庆末日', 10, 7],
+  ]) {
+    assert.equal(isHoliday(bj(mo, d)), true, `${label} 应为节假日`)
+    assert.equal(isPeakTime(bj(mo, d)), false, `${label} 应全天谷时`)
+  }
+  // 节后普通工作日、普通周六仍按星期判定
+  assert.equal(isHoliday(bj(1, 4)), false)
+  assert.equal(isHoliday(bj(2, 15)), false)
+  assert.equal(isPeakTime(bj(3, 14)), false, '普通周六全天谷时')
+})
+
+test('2027: 调休上班的周末按工作日算高峰', () => {
+  const bj = (mo, d) => new Date(Date.UTC(2027, mo - 1, d, 10, 0) - 8 * 3_600_000)
+  for (const [label, mo, d] of [
+    ['春节前调休', 1, 31], ['春节后调休', 2, 14],
+    ['劳动节调休', 5, 8],
+    ['国庆前调休', 9, 26], ['国庆后调休', 10, 9],
+  ]) {
+    assert.equal(isMakeupWorkday(bj(mo, d)), true, `${label} 应为调休上班日`)
+    assert.equal(isPeakTime(bj(mo, d)), true, `${label} 10:00 应为高峰`)
+  }
 })

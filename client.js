@@ -232,12 +232,18 @@
        * 中国法定节假日（放假日期，北京时间整日）。
        *
        * 法定节假日全天算谷时，所以这份表必须参与判定，否则节假日会被误判成
-       * 「工作日高峰」。来源：国务院办公厅《关于2026年部分节假日安排的通知》
-       * （国办发明电〔2025〕7号）：元旦 1/1–1/3、春节 2/15–2/23、清明 4/4–4/6、
-       * 劳动节 5/1–5/5、端午 6/19–6/21、中秋 9/25–9/27、国庆 10/1–10/7。
+       * 「工作日高峰」。
        *
-       * `2027` 官方安排尚未公布，这里留空并让代码在缺表时按「普通星期」处理；
-       * 面板上的规则说明会注明年份覆盖范围，不假装已知。
+       * 来源（均为国务院办公厅原文）：
+       * - 2026：国办发明电〔2025〕7号 —— 元旦 1/1–1/3、春节 2/15–2/23、
+       *   清明 4/4–4/6、劳动节 5/1–5/5、端午 6/19–6/21、中秋 9/25–9/27、
+       *   国庆 10/1–10/7。
+       * - 2027：国办发明电〔2026〕10号 —— 元旦 1/1–1/3、春节 2/5–2/13、
+       *   清明 4/3–4/5、劳动节 5/1–5/5、端午 6/9（1 天）、中秋 9/15（1 天）、
+       *   国庆 10/1–10/7。
+       *
+       * 表中没有的年份按「普通星期」处理（仅周末算谷时），不假装已知。
+       * 运行期可以用 Host 侧联网取回的表覆盖本表，见 index.mjs 的 holiday 同步。
        */
       var HOLIDAY_TABLE = {
         2026: [
@@ -249,18 +255,52 @@
           '09-25', '09-26', '09-27',
           '10-01', '10-02', '10-03', '10-04', '10-05', '10-06', '10-07',
         ],
+        2027: [
+          '01-01', '01-02', '01-03',
+          '02-05', '02-06', '02-07', '02-08', '02-09', '02-10', '02-11', '02-12', '02-13',
+          '04-03', '04-04', '04-05',
+          '05-01', '05-02', '05-03', '05-04', '05-05',
+          '06-09',
+          '09-15',
+          '10-01', '10-02', '10-03', '10-04', '10-05', '10-06', '10-07',
+        ],
       }
 
       /** 调休上班日（本来该休息的周末要上班，按工作日处理）。 */
       var MAKEUP_WORKDAYS = {
         2026: ['01-04', '02-14', '02-28', '05-09', '09-20', '10-10'],
+        // 2027：春节调休 1/31（周日）、2/14（周日）；劳动节 5/8（周六）；
+        // 国庆 9/26（周日）、10/9（周六）。元旦/清明/端午/中秋 无调休上班日。
+        2027: ['01-31', '02-14', '05-08', '09-26', '10-09'],
+      }
+
+      /**
+       * Host 侧联网取回的覆盖表（见 index.mjs）。
+       *
+       * 结构同上：`{ holidays: { 2027: ['01-01', ...] }, makeup: { 2027: [...] } }`。
+       * 一旦拿到就优先于内置表——内置表是「离线也能用」的兜底，不是唯一真相。
+       */
+      var remoteTables = null
+
+      /** 当前生效的放假表：联网数据优先，缺项回落内置。 */
+      function holidayTableFor(year) {
+        var remote = remoteTables && remoteTables.holidays ? remoteTables.holidays[year] : undefined
+        if (Array.isArray(remote) && remote.length > 0) return remote
+        return HOLIDAY_TABLE[year]
+      }
+
+      /** 当前生效的调休表：联网数据优先，缺项回落内置。 */
+      function makeupTableFor(year) {
+        var remote = remoteTables && remoteTables.makeup ? remoteTables.makeup[year] : undefined
+        if (Array.isArray(remote)) return remote
+        return MAKEUP_WORKDAYS[year]
       }
 
       /** 该日期（北京时间）是否为法定节假日。 */
       function isHoliday(date) {
         var parts = beijingParts(date)
         var year = parts.Date.getUTCFullYear()
-        var table = HOLIDAY_TABLE[year]
+        var table = holidayTableFor(year)
         if (table === undefined) return false
         var stamp = pad2(parts.Date.getUTCMonth() + 1) + '-' + pad2(parts.Date.getUTCDate())
         return table.indexOf(stamp) >= 0
@@ -269,7 +309,7 @@
       /** 该日期是否为调休上班的周末。 */
       function isMakeupWorkday(date) {
         var parts = beijingParts(date)
-        var table = MAKEUP_WORKDAYS[parts.Date.getUTCFullYear()]
+        var table = makeupTableFor(parts.Date.getUTCFullYear())
         if (table === undefined) return false
         var stamp = pad2(parts.Date.getUTCMonth() + 1) + '-' + pad2(parts.Date.getUTCDate())
         return table.indexOf(stamp) >= 0
@@ -386,6 +426,26 @@
               error: '无法连接 Host：' + (error && error.message ? error.message : String(error)),
             }
           })
+      }
+
+      /**
+       * 从 Host 取一次联网/缓存的节假日表，覆盖内置表。
+       *
+       * 时机：apply 时调一次（页面一打开就拿到），失败静默——内置表本来就能用。
+       * 拿到后 `remoteTables` 生效，`isHoliday`/`isMakeupWorkday` 自动优先用它。
+       * 只覆盖「拉到了实际数据」的年份，缺的年份继续回落内置表。
+       */
+      function syncHolidayTables() {
+        call('holidays').then(function (result) {
+          if (!result || result.ok === false) return
+          var table = result.value ? result.value.table : null
+          if (table === null || typeof table !== 'object') return
+          if (typeof table.holidays !== 'object' || table.holidays === null) return
+          remoteTables = {
+            holidays: table.holidays,
+            makeup: typeof table.makeup === 'object' && table.makeup !== null ? table.makeup : {},
+          }
+        })
       }
 
       // ── 样式 ──────────────────────────────────────────────────────────────
@@ -1222,6 +1282,11 @@
 
         var style = installStyle(document)
         if (style.owned && style.node) disposers.push(function () { style.node.remove() })
+
+        // 节假日表：先问 Host 要联网/缓存版本，拿不到就用内置表（这步永不抛）。
+        try { syncHolidayTables() } catch (error) {
+          console.warn('[scheduled-send] 节假日同步失败（内置表兜底）：', error)
+        }
 
         // uiWorkspace：可选。缺了只是「建完新会话不自动跳过去」，插件本体照常工作。
         var uiWorkspace = null
