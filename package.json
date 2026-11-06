@@ -12,7 +12,6 @@
   "files": [
     "index.mjs",
     "client.js",
-    "holidays.mjs",
     "cordis.patch.yml",
     "README.md"
   ],

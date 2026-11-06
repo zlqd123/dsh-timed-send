@@ -275,24 +275,16 @@
       }
 
       /**
-       * Host 侧联网取回的覆盖表（见 index.mjs）。
+       * 表查询统一走这两个函数，而不是直接下标 `HOLIDAY_TABLE[year]`。
        *
-       * 结构同上：`{ holidays: { 2027: ['01-01', ...] }, makeup: { 2027: [...] } }`。
-       * 一旦拿到就优先于内置表——内置表是「离线也能用」的兜底，不是唯一真相。
+       * 现在它们只是「拿了再说」的薄封装——将来若要接别的数据源（本地配置、
+       * 用户自填），只改这两处即可，调用方（isHoliday / isMakeupWorkday）不用动。
        */
-      var remoteTables = null
-
-      /** 当前生效的放假表：联网数据优先，缺项回落内置。 */
       function holidayTableFor(year) {
-        var remote = remoteTables && remoteTables.holidays ? remoteTables.holidays[year] : undefined
-        if (Array.isArray(remote) && remote.length > 0) return remote
         return HOLIDAY_TABLE[year]
       }
 
-      /** 当前生效的调休表：联网数据优先，缺项回落内置。 */
       function makeupTableFor(year) {
-        var remote = remoteTables && remoteTables.makeup ? remoteTables.makeup[year] : undefined
-        if (Array.isArray(remote)) return remote
         return MAKEUP_WORKDAYS[year]
       }
 
@@ -426,26 +418,6 @@
               error: '无法连接 Host：' + (error && error.message ? error.message : String(error)),
             }
           })
-      }
-
-      /**
-       * 从 Host 取一次联网/缓存的节假日表，覆盖内置表。
-       *
-       * 时机：apply 时调一次（页面一打开就拿到），失败静默——内置表本来就能用。
-       * 拿到后 `remoteTables` 生效，`isHoliday`/`isMakeupWorkday` 自动优先用它。
-       * 只覆盖「拉到了实际数据」的年份，缺的年份继续回落内置表。
-       */
-      function syncHolidayTables() {
-        call('holidays').then(function (result) {
-          if (!result || result.ok === false) return
-          var table = result.value ? result.value.table : null
-          if (table === null || typeof table !== 'object') return
-          if (typeof table.holidays !== 'object' || table.holidays === null) return
-          remoteTables = {
-            holidays: table.holidays,
-            makeup: typeof table.makeup === 'object' && table.makeup !== null ? table.makeup : {},
-          }
-        })
       }
 
       // ── 样式 ──────────────────────────────────────────────────────────────
@@ -1282,11 +1254,6 @@
 
         var style = installStyle(document)
         if (style.owned && style.node) disposers.push(function () { style.node.remove() })
-
-        // 节假日表：先问 Host 要联网/缓存版本，拿不到就用内置表（这步永不抛）。
-        try { syncHolidayTables() } catch (error) {
-          console.warn('[scheduled-send] 节假日同步失败（内置表兜底）：', error)
-        }
 
         // uiWorkspace：可选。缺了只是「建完新会话不自动跳过去」，插件本体照常工作。
         var uiWorkspace = null
